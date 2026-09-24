@@ -4,6 +4,8 @@ import { useAuthStore } from "@/store/authStore";
 import Navbar from "@/components/shared/Navbar";
 import LandingPage from "@/pages/LandingPage";
 import AuthPage from "@/pages/AuthPage";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import PlannerPage from "@/pages/PlannerPage";
 import PlansPage from "@/pages/PlansPage";
 import ConsentPage from "@/pages/ConsentPage";
@@ -34,6 +36,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route
             path="/plan"
             element={

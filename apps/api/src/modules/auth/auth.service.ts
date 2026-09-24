@@ -1,9 +1,10 @@
 import * as argon2 from "argon2";
-import { createHash, randomInt } from "crypto";
+import { createHash, randomBytes, randomInt } from "crypto";
 import { prisma } from "../../lib/prisma";
 import { redis } from "../../lib/redis";
+import { sendNotification } from "../notifications/notification.service";
 import type { FastifyInstance } from "fastify";
-import type { RegisterInput, LoginInput, GoogleOAuthInput } from "./auth.schema";
+import type { RegisterInput, LoginInput, GoogleOAuthInput, ForgotPasswordInput, ResetPasswordInput } from "./auth.schema";
 
 // ── Token helpers ────────────────────────────────────────────────────────────
 
@@ -205,3 +206,99 @@ export async function logoutUser(refreshToken: string) {
     data: { revoked: true },
   });
 }
+
+// ── Password Reset ──────────────────────────────────────────────────────────
+
+const RESET_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Request a password reset link.
+ * Always returns the same response to prevent email enumeration attacks.
+ */
+export async function requestPasswordReset(input: ForgotPasswordInput) {
+  const user = await prisma.user.findUnique({ where: { email: input.email } });
+
+  if (!user || !user.passwordHash) {
+    // Don't reveal whether the email exists — return success either way
+    return { message: "If an account with that email exists, a password reset link has been sent." };
+  }
+
+  // Invalidate any previous unused reset tokens for this user
+  await prisma.passwordResetToken.updateMany({
+    where: { userId: user.id, used: false },
+    data: { used: true },
+  });
+
+  // Generate a cryptographically secure random token
+  const rawToken = randomBytes(32).toString("hex");
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRY_MS);
+
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, tokenHash, expiresAt },
+  });
+
+  // Build the reset link — frontend URL
+  const frontendUrl = process.env.ALLOWED_ORIGINS?.split(",")[0] || "http://localhost:5173";
+  const resetLink = `${frontendUrl}/reset-password?token=${rawToken}`;
+
+  // Send the email via the notification service
+  await sendNotification({
+    to: user.email,
+    subject: "Reset your DB Best Worlds password",
+    body: `Hi ${user.name},\n\nYou requested a password reset. Click the link below to set a new password:\n\n${resetLink}\n\nThis link expires in 1 hour and can only be used once.\n\nIf you didn't request this, you can safely ignore this email.\n\n— DB Best Worlds`,
+    channel: "email",
+  });
+
+  // In development, also return the token for easy testing
+  return {
+    message: "If an account with that email exists, a password reset link has been sent.",
+    ...(process.env.NODE_ENV === "development" ? { devResetLink: resetLink } : {}),
+  };
+}
+
+/**
+ * Reset the user's password using a valid, unexpired, unused token.
+ */
+export async function resetPassword(input: ResetPasswordInput) {
+  const tokenHash = hashToken(input.token);
+
+  const resetRecord = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+  });
+
+  if (!resetRecord) {
+    throw Object.assign(new Error("Invalid or expired reset link"), { statusCode: 400 });
+  }
+
+  if (resetRecord.used) {
+    throw Object.assign(new Error("This reset link has already been used"), { statusCode: 400 });
+  }
+
+  if (resetRecord.expiresAt < new Date()) {
+    throw Object.assign(new Error("This reset link has expired"), { statusCode: 400 });
+  }
+
+  // Hash the new password with argon2
+  const newPasswordHash = await argon2.hash(input.password);
+
+  // Update the user's password and mark the token as used — in a transaction
+  await prisma.$transaction([
+    prisma.user.update({
+      where: { id: resetRecord.userId },
+      data: { passwordHash: newPasswordHash },
+    }),
+    prisma.passwordResetToken.update({
+      where: { id: resetRecord.id },
+      data: { used: true },
+    }),
+    // Revoke all existing refresh tokens for the user (force re-login everywhere)
+    prisma.refreshToken.updateMany({
+      where: { userId: resetRecord.userId, revoked: false },
+      data: { revoked: true },
+    }),
+  ]);
+
+  return { message: "Password has been reset successfully. You can now sign in with your new password." };
+}
+

@@ -7,6 +7,8 @@ import {
   LoginSchema,
   GoogleOAuthSchema,
   RefreshSchema,
+  ForgotPasswordSchema,
+  ResetPasswordSchema,
 } from "./auth.schema";
 import {
   registerUser,
@@ -15,6 +17,8 @@ import {
   googleOAuth,
   refreshAccessToken,
   logoutUser,
+  requestPasswordReset,
+  resetPassword,
 } from "./auth.service";
 
 export async function authRoutes(app: FastifyInstance) {
@@ -50,6 +54,18 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send(result);
   });
 
+  // POST /auth/forgot-password
+  app.post("/forgot-password", { preHandler: validate(ForgotPasswordSchema) }, async (req, reply) => {
+    const result = await requestPasswordReset((req as any).validated);
+    return reply.send(result);
+  });
+
+  // POST /auth/reset-password
+  app.post("/reset-password", { preHandler: validate(ResetPasswordSchema) }, async (req, reply) => {
+    const result = await resetPassword((req as any).validated);
+    return reply.send(result);
+  });
+
   // POST /auth/logout
   app.post(
     "/logout",
@@ -61,3 +77,4 @@ export async function authRoutes(app: FastifyInstance) {
     }
   );
 }
+

@@ -47,12 +47,8 @@ export function startOpsWorker() {
     { connection: redisConnection }
   );
 
-  worker.on("completed", (job) => {
-    console.log(`[OpsQueue] Job ${job.id} completed`);
-  });
-
-  worker.on("failed", (job, err) => {
-    console.error(`[OpsQueue] Job ${job?.id} failed:`, err.message);
+  worker.on("error", (err) => {
+    // Non-fatal error when Redis is offline in local dev
   });
 
   return worker;

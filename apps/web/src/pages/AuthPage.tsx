@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Globe, Mail, Lock, Phone, User, Loader2, Eye, EyeOff } from "lucide-react";
+import { Globe, Mail, Lock, Phone, User, Loader2, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 
@@ -25,18 +25,31 @@ const OtpSchema = z.object({
 });
 
 export default function AuthPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<"login" | "register" | "otp">(
     params.get("tab") === "register" ? "register" : "login"
   );
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
   const [showPass, setShowPass] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
   const navigate = useNavigate();
   const { setAuth, accessToken } = useAuthStore();
 
   useEffect(() => {
     if (accessToken) navigate("/dashboard");
   }, [accessToken, navigate]);
+
+  // Show success banner if redirected from password reset
+  useEffect(() => {
+    if (params.get("reset") === "success") {
+      setResetSuccess(true);
+      // Clean the URL
+      setParams({}, { replace: true });
+      // Auto-dismiss after 6 seconds
+      const timer = setTimeout(() => setResetSuccess(false), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [params, setParams]);
 
   const loginForm = useForm({ resolver: zodResolver(LoginSchema) });
   const registerForm = useForm({ resolver: zodResolver(RegisterSchema) });
@@ -88,6 +101,24 @@ export default function AuthPage() {
       </div>
 
       <div className="w-full max-w-md relative z-10">
+        {/* Password reset success banner */}
+        <AnimatePresence>
+          {resetSuccess && (
+            <motion.div
+              initial={{ opacity: 0, y: -10, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto" }}
+              exit={{ opacity: 0, y: -10, height: 0 }}
+              className="mb-4 p-4 rounded-xl bg-success/10 border border-success/20 flex items-center gap-3"
+            >
+              <CheckCircle2 className="w-5 h-5 text-success flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-success">Password reset successfully!</p>
+                <p className="text-xs text-muted mt-0.5">Sign in with your new password below.</p>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-primary-gradient flex items-center justify-center shadow-glow-primary mx-auto mb-4">
@@ -152,6 +183,18 @@ export default function AuthPage() {
                   <p className="text-danger text-xs mt-1">{loginForm.formState.errors.password.message as string}</p>
                 )}
               </div>
+
+              {/* Forgot Password Link */}
+              <div className="flex justify-end -mt-1">
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-primary hover:text-accent transition-colors font-medium"
+                  id="forgot-password-link"
+                >
+                  Forgot Password?
+                </Link>
+              </div>
+
               {loginForm.formState.errors.root && (
                 <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-danger text-sm">
                   {loginForm.formState.errors.root.message}

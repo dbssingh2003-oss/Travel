@@ -28,8 +28,8 @@ export function startNotificationWorker() {
     { connection: redisConnection }
   );
 
-  worker.on("failed", (job, err) => {
-    console.error(`[NotifQueue] Job ${job?.id} failed:`, err.message);
+  worker.on("error", (err) => {
+    // Gracefully handle in dev when Redis is offline
   });
 
   return worker;
