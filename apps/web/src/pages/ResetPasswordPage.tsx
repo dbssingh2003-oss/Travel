@@ -14,7 +14,7 @@ import {
   AlertTriangle,
   ShieldCheck,
 } from "lucide-react";
-import { api } from "@/lib/api";
+import { authApi } from "@/lib/apiService";
 
 const ResetPasswordSchema = z
   .object({
@@ -106,9 +106,10 @@ export default function ResetPasswordPage() {
   const watchPassword = form.watch("password") || "";
 
   const onSubmit = async (data: ResetPasswordForm) => {
+    if (!token) return;
     setApiError(null);
     try {
-      await api.post("/auth/reset-password", {
+      await authApi.resetPassword({
         token,
         password: data.password,
         confirmPassword: data.confirmPassword,
@@ -117,9 +118,7 @@ export default function ResetPasswordPage() {
       // Redirect to login after 3 seconds
       setTimeout(() => navigate("/auth?reset=success"), 3000);
     } catch (err: any) {
-      const message =
-        err.response?.data?.error || "Something went wrong. Please try again.";
-      setApiError(message);
+      setApiError(err.message || "Something went wrong. Please try again.");
     }
   };
 

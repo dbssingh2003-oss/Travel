@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { z } from "zod";
 import { validate } from "../../middleware/validate";
+import { sendSuccess, sendCreated } from "../../lib/apiResponse";
 import { createVendor, approveKyc, listVendors, rateVendor } from "./vendors.service";
 
 const CreateVendorSchema = z.object({
@@ -25,7 +26,7 @@ export async function vendorRoutes(app: FastifyInstance) {
     { preHandler: [requireAuth(["ADMIN"]), validate(CreateVendorSchema)] },
     async (req, reply) => {
       const vendor = await createVendor((req as any).validated);
-      return reply.status(201).send(vendor);
+      return sendCreated(reply, vendor, "Vendor created successfully.");
     }
   );
 
@@ -36,7 +37,7 @@ export async function vendorRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const vendor = await approveKyc(id);
-      return reply.send(vendor);
+      return sendSuccess(reply, vendor, "Vendor KYC approved.");
     }
   );
 
@@ -44,7 +45,7 @@ export async function vendorRoutes(app: FastifyInstance) {
   app.get("/", async (req, reply) => {
     const { type, city } = req.query as { type?: string; city?: string };
     const vendors = await listVendors(type as any, city);
-    return reply.send({ vendors });
+    return sendSuccess(reply, { vendors });
   });
 
   // POST /vendors/:id/ratings — authenticated users
@@ -55,7 +56,7 @@ export async function vendorRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { bookingId, rating, comment } = (req as any).validated;
       const result = await rateVendor(id, bookingId, rating, comment);
-      return reply.status(201).send(result);
+      return sendCreated(reply, result, "Rating submitted successfully.");
     }
   );
 }

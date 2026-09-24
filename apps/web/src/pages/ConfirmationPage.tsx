@@ -1,8 +1,8 @@
 import { motion } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Train, Hotel, Car, Phone, Download, CheckCircle2, Loader2, LayoutDashboard } from "lucide-react";
-import { api } from "@/lib/api";
+import { Train, Hotel, Car, Phone, Download, CheckCircle2, Loader2, LayoutDashboard, ArrowLeft } from "lucide-react";
+import { tripsApi } from "@/lib/apiService";
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   TRAIN: <Train className="w-5 h-5" />,
@@ -20,19 +20,37 @@ export default function ConfirmationPage() {
   const { tripId } = useParams<{ tripId: string }>();
   const navigate = useNavigate();
 
+  const isValidTripId = Boolean(tripId && tripId !== "undefined" && tripId.trim() !== "");
+
   const { data, isLoading } = useQuery({
     queryKey: ["confirmation", tripId],
     queryFn: async () => {
-      const res = await api.get(`/trips/${tripId}/confirmation`);
-      return res.data;
+      if (!isValidTripId) throw new Error("Invalid Trip ID");
+      return await tripsApi.getConfirmation(tripId!);
     },
-    enabled: !!tripId,
+    enabled: isValidTripId,
     refetchInterval: (query) => {
       const d = query.state.data as any;
       const hasAllConfirmed = d?.bookings?.every((b: any) => b.status === "CONFIRMED");
       return hasAllConfirmed ? false : 15000;
     },
   });
+
+  if (!isValidTripId) {
+    return (
+      <div className="min-h-screen pt-24 pb-16 flex items-center justify-center px-4">
+        <div className="glass-card p-8 text-center max-w-md">
+          <h2 className="text-xl font-bold mb-2">No Active Trip Selected</h2>
+          <p className="text-muted text-sm mb-6">
+            Please select a trip from your dashboard.
+          </p>
+          <button onClick={() => navigate("/dashboard")} className="btn-primary inline-flex items-center gap-2">
+            <ArrowLeft className="w-4 h-4" /> Go to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -55,107 +73,72 @@ export default function ConfirmationPage() {
               transition={{ duration: 0.5 }}
               className="text-center mb-8"
             >
-              <div className="w-20 h-20 rounded-full bg-success/10 border-2 border-success/30 flex items-center justify-center mx-auto mb-4">
+              <div className="w-20 h-20 rounded-full bg-success/10 border-2 border-success/30 flex items-center justify-center mx-auto mb-4 shadow-glow-success">
                 <CheckCircle2 className="w-10 h-10 text-success" />
               </div>
-              <h1 className="text-3xl font-bold mb-2">
-                {data?.status === "BOOKED" ? (
-                  <>Trip <span className="gradient-text">confirmed! 🎉</span></>
-                ) : (
-                  <>Booking in progress…</>
-                )}
+              <h1 className="text-3xl font-bold mb-1">
+                You're <span className="gradient-text">All Set!</span>
               </h1>
-              <p className="text-muted">
-                Total paid:{" "}
-                <span className="text-white font-bold text-lg">
-                  ₹{data?.totalPaid?.toLocaleString("en-IN") || "—"}
-                </span>
+              <p className="text-muted text-sm">
+                Trip to <strong className="text-slate-100">{data?.trip?.destination}</strong> is confirmed.
               </p>
             </motion.div>
 
-            {/* Booking cards */}
+            {/* Bookings summary cards */}
             <div className="space-y-4 mb-8">
-              {(data?.bookings || []).map((booking: any, i: number) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className={`glass-card p-5 border ${
-                    booking.status === "CONFIRMED"
-                      ? "border-success/30"
-                      : booking.status === "PENDING"
-                      ? "border-warning/30"
-                      : "border-danger/30"
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
+              {(data?.bookings || []).map((booking: any) => (
+                <div key={booking.id} className="glass-card p-5">
+                  <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        booking.status === "CONFIRMED" ? "bg-success/15 text-success" : "bg-surface-2 text-muted"
-                      }`}>
-                        {TYPE_ICONS[booking.type]}
+                      <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                        {TYPE_ICONS[booking.type] || <CheckCircle2 className="w-5 h-5" />}
                       </div>
                       <div>
-                        <p className="font-semibold text-slate-200">{TYPE_LABELS[booking.type]}</p>
-                        {booking.referenceCode && (
-                          <p className="text-sm font-mono text-accent">{booking.referenceCode}</p>
-                        )}
+                        <p className="text-xs text-muted-fg">{TYPE_LABELS[booking.type] || booking.type}</p>
+                        <h4 className="font-semibold text-slate-100">
+                          {booking.vendor?.name || "Verified Vendor"}
+                        </h4>
                       </div>
                     </div>
-                    <span className={`badge text-xs ${
-                      booking.status === "CONFIRMED" ? "badge-success" :
-                      booking.status === "PENDING" ? "badge-warning" : "badge-danger"
-                    }`}>
-                      {booking.status}
+                    <span className="badge badge-success text-xs">
+                      ✓ {booking.status}
                     </span>
                   </div>
 
-                  {booking.vendor && (
-                    <div className="bg-surface-2 rounded-lg p-3 flex items-center justify-between">
+                  <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-2 text-xs">
+                    {booking.referenceCode && (
                       <div>
-                        <p className="text-xs text-muted-fg">Vendor</p>
-                        <p className="text-sm font-medium text-slate-200">{booking.vendor.name}</p>
+                        <span className="text-muted-fg">PNR / Ref Code</span>
+                        <p className="font-mono font-bold text-accent">{booking.referenceCode}</p>
                       </div>
-                      {booking.vendor.phone && (
-                        <a
-                          href={`tel:${booking.vendor.phone}`}
-                          className="flex items-center gap-1.5 text-sm text-accent hover:text-white transition-colors"
-                        >
-                          <Phone className="w-4 h-4" />
-                          {booking.vendor.phone}
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </motion.div>
+                    )}
+                    {booking.vendor?.contactPhone && (
+                      <div>
+                        <span className="text-muted-fg">Vendor Contact</span>
+                        <p className="font-medium flex items-center gap-1 text-slate-200">
+                          <Phone className="w-3 h-3 text-muted" /> {booking.vendor.contactPhone}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               ))}
             </div>
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row gap-3">
-              <a
-                href={data?.downloadUrl}
-                className="btn-secondary flex-1 text-center"
-                download
+              <button
+                onClick={() => window.print()}
+                className="btn-secondary flex-1 flex items-center justify-center gap-2"
               >
-                <Download className="w-4 h-4" /> Download PDF
-              </a>
+                <Download className="w-4 h-4" /> Download Itinerary PDF
+              </button>
               <button
                 onClick={() => navigate("/dashboard")}
-                className="btn-primary flex-1"
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
               >
-                <LayoutDashboard className="w-4 h-4" /> Go to My Trips
+                <LayoutDashboard className="w-4 h-4" /> Go to Dashboard
               </button>
-            </div>
-
-            <div className="mt-6 text-center">
-              <p className="text-xs text-muted-fg">
-                Need help? Contact our 24/7 support at{" "}
-                <a href="mailto:support@dbbestworlds.app" className="text-accent hover:underline">
-                  support@dbbestworlds.app
-                </a>
-              </p>
             </div>
           </>
         )}

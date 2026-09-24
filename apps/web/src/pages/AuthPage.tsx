@@ -5,23 +5,23 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Globe, Mail, Lock, Phone, User, Loader2, Eye, EyeOff, CheckCircle2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { authApi } from "@/lib/apiService";
 import { useAuthStore } from "@/store/authStore";
 
 const LoginSchema = z.object({
-  email: z.string().email("Invalid email"),
-  password: z.string().min(1, "Password required"),
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
 });
 
 const RegisterSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email"),
+  email: z.string().email("Invalid email address"),
   phone: z.string().regex(/^[6-9]\d{9}$/, "Invalid Indian mobile number").optional().or(z.literal("")),
-  password: z.string().min(8, "Min 8 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
 });
 
 const OtpSchema = z.object({
-  otp: z.string().length(6, "OTP is 6 digits"),
+  otp: z.string().length(6, "OTP must be 6 digits"),
 });
 
 export default function AuthPage() {
@@ -43,9 +43,7 @@ export default function AuthPage() {
   useEffect(() => {
     if (params.get("reset") === "success") {
       setResetSuccess(true);
-      // Clean the URL
       setParams({}, { replace: true });
-      // Auto-dismiss after 6 seconds
       const timer = setTimeout(() => setResetSuccess(false), 6000);
       return () => clearTimeout(timer);
     }
@@ -57,34 +55,35 @@ export default function AuthPage() {
 
   const onLogin = async (data: any) => {
     try {
-      const res = await api.post("/auth/login", data);
-      setAuth(res.data.accessToken, res.data.refreshToken, res.data.user);
+      const res = await authApi.login(data);
+      setAuth(res.accessToken, res.refreshToken, res.user);
       navigate("/dashboard");
     } catch (err: any) {
-      loginForm.setError("root", { message: err.response?.data?.error || "Login failed" });
+      loginForm.setError("root", { message: err.message || "Login failed" });
     }
   };
 
   const onRegister = async (data: any) => {
     try {
-      const res = await api.post("/auth/register", { ...data, phone: data.phone || undefined });
-      setPendingUserId(res.data.userId);
-      if (res.data.devOtp) {
-        otpForm.setValue("otp", res.data.devOtp);
+      const res = await authApi.register({ ...data, phone: data.phone || undefined });
+      setPendingUserId(res.userId);
+      if (res.devOtp) {
+        otpForm.setValue("otp", res.devOtp);
       }
       setTab("otp");
     } catch (err: any) {
-      registerForm.setError("root", { message: err.response?.data?.error || "Registration failed" });
+      registerForm.setError("root", { message: err.message || "Registration failed" });
     }
   };
 
   const onVerifyOtp = async (data: any) => {
     try {
-      const res = await api.post("/auth/verify-otp", { userId: pendingUserId, otp: data.otp });
-      setAuth(res.data.accessToken, res.data.refreshToken, res.data.user);
+      if (!pendingUserId) throw new Error("Missing user ID for verification");
+      const res = await authApi.verifyOtp({ userId: pendingUserId, otp: data.otp });
+      setAuth(res.accessToken, res.refreshToken, res.user);
       navigate("/dashboard");
     } catch (err: any) {
-      otpForm.setError("root", { message: err.response?.data?.error || "Invalid OTP" });
+      otpForm.setError("root", { message: err.message || "Invalid OTP" });
     }
   };
 

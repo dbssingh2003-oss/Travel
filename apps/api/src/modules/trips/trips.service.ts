@@ -1,6 +1,8 @@
 import { prisma } from "../../lib/prisma";
 import type { CreateTripInput } from "./trips.schema";
 import type { BudgetTier } from "../../types/models";
+import { NotFoundError, UnauthorizedError, BadRequestError } from "../../lib/errors";
+import { logger } from "../../lib/logger";
 
 // ── Budget bands (INR per traveler, per night/segment) ────────────────────
 const BUDGET_BANDS: Record<BudgetTier, { trainBase: number; hotelNight: number; cab: number; buffer: number }> = {
@@ -33,10 +35,10 @@ function generateItinerary(destination: string, nights: number, tier: string) {
         d === nights
           ? ["Check-out", "Local sightseeing", "Head back home"]
           : [
-              `Sightseeing at popular spots`,
-              `Local cuisine lunch`,
-              `Afternoon activities`,
-              `Evening at leisure`,
+              `Sightseeing at popular spots in ${dest}`,
+              `Local cuisine lunch & relaxation`,
+              `Afternoon adventure & scenic views`,
+              `Evening leisure & dinner`,
             ],
     });
   }
@@ -52,7 +54,8 @@ function generateItinerary(destination: string, nights: number, tier: string) {
 function generatePlans(trip: CreateTripInput) {
   const startDate = new Date(trip.startDate);
   const endDate = new Date(trip.endDate);
-  const nights = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+  const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+  const nights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
   const travelers = trip.travelers || 1;
   const dest = trip.destination.split(",")[0].trim();
 
@@ -63,7 +66,10 @@ function generatePlans(trip: CreateTripInput) {
   ];
 
   // If CUSTOM budget, derive a multiplier from the range
-  const effectiveTier = trip.budgetTier === "CUSTOM" ? "MEDIUM" : trip.budgetTier;
+  const effectiveTier: BudgetTier =
+    trip.budgetTier === "CUSTOM" || !BUDGET_BANDS[trip.budgetTier as BudgetTier]
+      ? "MEDIUM"
+      : (trip.budgetTier as BudgetTier);
 
   return tiers.map(({ tier, label, multiplier }) => {
     const band = BUDGET_BANDS[effectiveTier];
@@ -85,13 +91,26 @@ function generatePlans(trip: CreateTripInput) {
 // ── Service functions ─────────────────────────────────────────────────────
 
 export async function createTrip(userId: string, input: CreateTripInput) {
+  // Ensure the user exists in database to prevent foreign key errors
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    throw new UnauthorizedError("User session is invalid. Please sign in again.");
+  }
+
+  const startDate = new Date(input.startDate);
+  const endDate = new Date(input.endDate);
+
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    throw new BadRequestError("Invalid travel dates provided.");
+  }
+
   const trip = await prisma.trip.create({
     data: {
       userId,
       destination: input.destination,
       originCity: input.originCity,
-      startDate: new Date(input.startDate),
-      endDate: new Date(input.endDate),
+      startDate,
+      endDate,
       travelers: input.travelers ?? 1,
       budgetTier: input.budgetTier as BudgetTier,
       budgetMin: input.budgetMin,
@@ -100,9 +119,13 @@ export async function createTrip(userId: string, input: CreateTripInput) {
     },
   });
 
-  await prisma.auditLog.create({
-    data: { tripId: trip.id, actorId: userId, action: "TRIP_CREATED" },
-  });
+  try {
+    await prisma.auditLog.create({
+      data: { tripId: trip.id, actorId: userId, action: "TRIP_CREATED" },
+    });
+  } catch (err) {
+    logger.warn({ err }, "Could not write audit log for trip creation");
+  }
 
   return { tripId: trip.id, status: trip.status };
 }
@@ -112,7 +135,10 @@ export async function getPlansForTrip(userId: string, tripId: string) {
     where: { id: tripId, userId },
     include: { plans: true },
   });
-  if (!trip) throw Object.assign(new Error("Trip not found"), { statusCode: 404 });
+
+  if (!trip) {
+    throw new NotFoundError("Trip not found or you do not have permission to view it.");
+  }
 
   if (trip.plans.length === 0) {
     return generatePlansForTrip(userId, tripId);
@@ -133,9 +159,11 @@ export async function getPlansForTrip(userId: string, tripId: string) {
 
 export async function generatePlansForTrip(userId: string, tripId: string) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, userId } });
-  if (!trip) throw Object.assign(new Error("Trip not found"), { statusCode: 404 });
+  if (!trip) {
+    throw new NotFoundError("Trip not found or you do not have permission to access it.");
+  }
 
-  // Delete any previously generated plans
+  // Delete any previously generated plans for this trip
   await prisma.tripPlan.deleteMany({ where: { tripId } });
 
   const plans = generatePlans({
@@ -163,9 +191,13 @@ export async function generatePlansForTrip(userId: string, tripId: string) {
     )
   );
 
-  await prisma.auditLog.create({
-    data: { tripId, actorId: userId, action: "PLAN_GENERATED", detail: { count: plans.length } },
-  });
+  try {
+    await prisma.auditLog.create({
+      data: { tripId, actorId: userId, action: "PLAN_GENERATED", detail: { count: plans.length } },
+    });
+  } catch (err) {
+    logger.warn({ err }, "Could not write audit log for plan generation");
+  }
 
   return {
     tripId,
@@ -182,10 +214,14 @@ export async function generatePlansForTrip(userId: string, tripId: string) {
 
 export async function selectPlan(userId: string, tripId: string, planId: string) {
   const trip = await prisma.trip.findFirst({ where: { id: tripId, userId } });
-  if (!trip) throw Object.assign(new Error("Trip not found"), { statusCode: 404 });
+  if (!trip) {
+    throw new NotFoundError("Trip not found.");
+  }
 
   const plan = await prisma.tripPlan.findFirst({ where: { id: planId, tripId } });
-  if (!plan) throw Object.assign(new Error("Plan not found"), { statusCode: 404 });
+  if (!plan) {
+    throw new NotFoundError("Selected plan not found for this trip.");
+  }
 
   await prisma.$transaction([
     prisma.tripPlan.updateMany({ where: { tripId }, data: { selected: false } }),
@@ -193,9 +229,13 @@ export async function selectPlan(userId: string, tripId: string, planId: string)
     prisma.trip.update({ where: { id: tripId }, data: { status: "PLANNED" } }),
   ]);
 
-  await prisma.auditLog.create({
-    data: { tripId, actorId: userId, action: "PLAN_SELECTED", detail: { planId } },
-  });
+  try {
+    await prisma.auditLog.create({
+      data: { tripId, actorId: userId, action: "PLAN_SELECTED", detail: { planId } },
+    });
+  } catch (err) {
+    logger.warn({ err }, "Could not write audit log for plan selection");
+  }
 
   return { tripId, status: "PLANNED", finalEstimate: plan.estimatedCost };
 }
@@ -207,7 +247,9 @@ export async function getTripStatus(userId: string, tripId: string) {
       bookings: { select: { id: true, type: true, status: true, referenceCode: true } },
     },
   });
-  if (!trip) throw Object.assign(new Error("Trip not found"), { statusCode: 404 });
+  if (!trip) {
+    throw new NotFoundError("Trip not found.");
+  }
   return trip;
 }
 
@@ -221,7 +263,9 @@ export async function getTripConfirmation(userId: string, tripId: string) {
       payments: { select: { amount: true, status: true } },
     },
   });
-  if (!trip) throw Object.assign(new Error("Trip not found"), { statusCode: 404 });
+  if (!trip) {
+    throw new NotFoundError("Trip not found.");
+  }
 
   const totalPaid = trip.payments
     .filter((p) => p.status === "CAPTURED")
@@ -229,26 +273,29 @@ export async function getTripConfirmation(userId: string, tripId: string) {
 
   return {
     tripId: trip.id,
-    status: trip.status,
-    bookings: trip.bookings.map((b) => ({
-      type: b.type,
-      referenceCode: b.referenceCode,
-      status: b.status,
-      vendor: b.vendor
-        ? { name: b.vendor.name, phone: b.vendor.contactPhone }
-        : null,
-    })),
+    trip: {
+      destination: trip.destination,
+      originCity: trip.originCity,
+      startDate: trip.startDate,
+      endDate: trip.endDate,
+      travelers: trip.travelers,
+      status: trip.status,
+    },
+    bookings: trip.bookings,
     totalPaid,
-    downloadUrl: `/api/v1/trips/${tripId}/confirmation.pdf`,
+    confirmedAt: trip.updatedAt,
   };
 }
 
 export async function getUserTrips(userId: string) {
-  return prisma.trip.findMany({
+  const trips = await prisma.trip.findMany({
     where: { userId },
-    orderBy: { createdAt: "desc" },
     include: {
-      bookings: { select: { type: true, status: true } },
+      plans: { where: { selected: true } },
+      bookings: { select: { id: true, type: true, status: true } },
     },
+    orderBy: { createdAt: "desc" },
   });
+
+  return trips;
 }

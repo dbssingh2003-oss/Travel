@@ -13,28 +13,38 @@ const inMemoryStore = new Map<string, { val: string; expiresAt?: number }>();
 
 realRedis.on("connect", () => {
   isConnected = true;
-  console.log("[Redis] Connected successfully");
 });
 
-realRedis.on("error", (err) => {
+realRedis.on("error", () => {
   isConnected = false;
-  // Non-fatal warning in development
 });
 
 // Proxy interface to handle in-memory fallback transparently
 export const redis = {
+  get status(): string {
+    return isConnected ? "ready" : "disconnected";
+  },
+
+  async ping(): Promise<string> {
+    if (isConnected) {
+      return realRedis.ping();
+    }
+    return "PONG (in-memory)";
+  },
+
   async connect() {
     try {
       await realRedis.connect();
-    } catch (err: any) {
+      isConnected = true;
+    } catch {
       isConnected = false;
-      console.warn(`[Redis] Server not reachable at ${REDIS_URL}. Using in-memory fallback.`);
     }
   },
 
   async quit() {
     if (isConnected) {
       await realRedis.quit();
+      isConnected = false;
     }
   },
 

@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Loader2, Train, Hotel, Car, IndianRupee, Calendar } from "lucide-react";
-import { api } from "@/lib/api";
+import { ChevronRight, Loader2, Train, Hotel, Car, IndianRupee, ArrowLeft } from "lucide-react";
+import { tripsApi } from "@/lib/apiService";
 import { useTripStore } from "@/store/tripStore";
 
 function PlanCard({
@@ -19,7 +19,7 @@ function PlanCard({
 }) {
   const tierColors: Record<string, string> = {
     "Budget Explorer": "text-success border-success/30 bg-success/5",
-    "Balanced": "text-primary border-primary/30 bg-primary/5",
+    Balanced: "text-primary border-primary/30 bg-primary/5",
     "Comfort Plus": "text-warning border-warning/30 bg-warning/5",
   };
   const colorClass = tierColors[plan.label] || "text-accent border-accent/30 bg-accent/5";
@@ -44,7 +44,11 @@ function PlanCard({
           </div>
           <p className="text-xs text-muted-fg">estimated total</p>
         </div>
-        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-1 transition-all ${selected ? "border-primary bg-primary" : "border-border"}`}>
+        <div
+          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-1 transition-all ${
+            selected ? "border-primary bg-primary" : "border-border"
+          }`}
+        >
           {selected && <div className="w-2 h-2 rounded-full bg-white" />}
         </div>
       </div>
@@ -52,10 +56,10 @@ function PlanCard({
       {/* Cost breakdown */}
       <div className="grid grid-cols-2 gap-2 mb-5">
         {[
-          { icon: <Train className="w-3 h-3" />, label: "Transport", value: plan.costBreakdown.transport },
-          { icon: <Hotel className="w-3 h-3" />, label: "Stay", value: plan.costBreakdown.stay },
-          { icon: <Car className="w-3 h-3" />, label: "Local cab", value: plan.costBreakdown.localTransport },
-          { icon: <IndianRupee className="w-3 h-3" />, label: "Buffer", value: plan.costBreakdown.buffer },
+          { icon: <Train className="w-3 h-3" />, label: "Transport", value: plan.costBreakdown?.transport || 0 },
+          { icon: <Hotel className="w-3 h-3" />, label: "Stay", value: plan.costBreakdown?.stay || 0 },
+          { icon: <Car className="w-3 h-3" />, label: "Local cab", value: plan.costBreakdown?.localTransport || 0 },
+          { icon: <IndianRupee className="w-3 h-3" />, label: "Buffer", value: plan.costBreakdown?.buffer || 0 },
         ].map((item) => (
           <div key={item.label} className="flex items-center gap-2 bg-surface-2 rounded-lg px-3 py-2">
             <span className="text-muted">{item.icon}</span>
@@ -95,13 +99,16 @@ export default function PlansPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const isValidTripId = Boolean(tripId && tripId !== "undefined" && tripId.trim() !== "");
+
+  const { data, isLoading, error } = useQuery({
     queryKey: ["plans", tripId],
     queryFn: async () => {
-      const res = await api.get(`/trips/${tripId}/plans`);
-      return res.data;
+      if (!isValidTripId) throw new Error("Invalid Trip ID");
+      const res = await tripsApi.getPlans(tripId!);
+      return res;
     },
-    enabled: !!tripId,
+    enabled: isValidTripId,
   });
 
   useEffect(() => {
@@ -112,19 +119,35 @@ export default function PlansPage() {
   }, [data, selectedId]);
 
   const handleProceed = async () => {
-    if (!selectedId || !tripId) return;
+    if (!selectedId || !isValidTripId) return;
     setSelecting(true);
     try {
-      await api.post(`/trips/${tripId}/select-plan`, { planId: selectedId });
-      const plan = data?.plans.find((p: any) => p.id === selectedId);
+      await tripsApi.selectPlan(tripId!, selectedId);
+      const plan = data?.plans?.find((p: any) => p.id === selectedId);
       if (plan) setSelectedPlan(plan);
       navigate(`/trips/${tripId}/consent`);
-    } catch (err) {
-      alert("Failed to select plan. Please try again.");
+    } catch (err: any) {
+      alert(err.message || "Failed to select plan. Please try again.");
     } finally {
       setSelecting(false);
     }
   };
+
+  if (!isValidTripId) {
+    return (
+      <div className="min-h-screen pt-24 pb-16 flex items-center justify-center px-4">
+        <div className="glass-card p-8 text-center max-w-md">
+          <h2 className="text-xl font-bold mb-2">No Active Trip Selected</h2>
+          <p className="text-muted text-sm mb-6">
+            Please create or select a trip to view tailored plans.
+          </p>
+          <button onClick={() => navigate("/plan")} className="btn-primary inline-flex items-center gap-2">
+            <ArrowLeft className="w-4 h-4" /> Start Planning
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -149,6 +172,15 @@ export default function PlansPage() {
               <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
               <p className="text-muted">Crafting your perfect plans…</p>
             </div>
+          </div>
+        ) : error ? (
+          <div className="glass-card p-8 text-center max-w-md mx-auto">
+            <p className="text-danger text-sm mb-4">
+              {(error as any)?.message || "Failed to load plans."}
+            </p>
+            <button onClick={() => navigate("/plan")} className="btn-secondary text-sm">
+              Back to Planner
+            </button>
           </div>
         ) : (
           <>
@@ -177,9 +209,13 @@ export default function PlansPage() {
                     className="btn-primary text-lg px-10 py-4"
                   >
                     {selecting ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Processing…</>
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Processing…
+                      </>
                     ) : (
-                      <>Proceed with this plan <ChevronRight className="w-5 h-5" /></>
+                      <>
+                        Proceed with this plan <ChevronRight className="w-5 h-5" />
+                      </>
                     )}
                   </button>
                 </motion.div>

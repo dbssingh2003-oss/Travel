@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { z } from "zod";
 import { validate } from "../../middleware/validate";
+import { sendSuccess } from "../../lib/apiResponse";
 import { getPendingBookings, claimBooking, confirmBooking, failBooking } from "./ops.service";
 
 const ConfirmBookingSchema = z.object({ referenceCode: z.string().min(1) });
@@ -14,7 +15,7 @@ export async function opsRoutes(app: FastifyInstance) {
   app.get("/bookings/pending", async (req, reply) => {
     const { type, city } = req.query as { type?: string; city?: string };
     const bookings = await getPendingBookings(type, city);
-    return reply.send({ bookings });
+    return sendSuccess(reply, { bookings });
   });
 
   // PATCH /ops/bookings/:id/claim
@@ -22,7 +23,7 @@ export async function opsRoutes(app: FastifyInstance) {
     const user = req.user as { sub: string };
     const { id } = req.params as { id: string };
     const result = await claimBooking(id, user.sub);
-    return reply.send(result);
+    return sendSuccess(reply, result, "Booking claimed by agent.");
   });
 
   // PATCH /ops/bookings/:id/confirm
@@ -34,7 +35,7 @@ export async function opsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { referenceCode } = (req as any).validated;
       const result = await confirmBooking(id, referenceCode, user.sub);
-      return reply.send(result);
+      return sendSuccess(reply, result, "Booking confirmed.");
     }
   );
 
@@ -47,7 +48,7 @@ export async function opsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { reason } = (req as any).validated;
       const result = await failBooking(id, reason, user.sub);
-      return reply.send(result);
+      return sendSuccess(reply, result, "Booking marked as failed.");
     }
   );
 }

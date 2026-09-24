@@ -3,9 +3,10 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { MapPin, Calendar, Users, Wallet, ArrowRight, ArrowLeft, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { tripsApi } from "@/lib/apiService";
 import { useTripStore } from "@/store/tripStore";
 
 const steps = ["Destination", "Dates", "Travelers & Budget", "Review"];
@@ -59,11 +60,18 @@ function StepProgress({ current, total }: { current: number; total: number }) {
 }
 
 function DestinationStep({ onNext }: { onNext: (data: any) => void }) {
+  const [searchParams] = useSearchParams();
+  const prefillDest = searchParams.get("dest") || "";
+
   const { register, handleSubmit, setValue, formState: { errors } } = useForm({
     resolver: zodResolver(DestinationSchema),
+    defaultValues: {
+      destination: prefillDest,
+      originCity: searchParams.get("from") || "",
+    },
   });
 
-  const popular = ["Manali, HP", "Goa", "Rishikesh, UK", "Coorg, Karnataka", "Jaisalmer, RJ", "Andaman Islands"];
+  const popular = ["Manali, HP", "Goa", "Rishikesh, UK", "Coorg, Karnataka", "Jaisalmer, RJ", "Andaman Islands", "Ladakh, J&K", "Munnar, Kerala"];
 
   return (
     <form onSubmit={handleSubmit(onNext)} className="space-y-6">
@@ -288,12 +296,15 @@ export function PlannerWizard() {
   const handleFinalSubmit = async () => {
     setLoading(true);
     try {
-      const tripRes = await api.post("/trips", formData);
-      const tripId = tripRes.data.tripId;
+      const res = await tripsApi.createTrip(formData);
+      const tripId = res?.tripId || (res as any)?.id;
+      if (!tripId) {
+        throw new Error("Unable to retrieve trip ID from server");
+      }
       setCurrentTrip(tripId);
       navigate(`/trips/${tripId}/plans`);
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to create trip. Please try again.");
+      alert(err.message || "Failed to create trip. Please try again.");
     } finally {
       setLoading(false);
     }

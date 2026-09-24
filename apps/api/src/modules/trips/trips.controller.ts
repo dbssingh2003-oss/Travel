@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { validate } from "../../middleware/validate";
+import { sendSuccess, sendCreated } from "../../lib/apiResponse";
 import { CreateTripSchema, SelectPlanSchema, CustomizePlanSchema } from "./trips.schema";
 import {
   createTrip,
@@ -20,14 +21,14 @@ export async function tripRoutes(app: FastifyInstance) {
   app.get("/", async (req, reply) => {
     const user = req.user as { sub: string };
     const trips = await getUserTrips(user.sub);
-    return reply.send({ trips });
+    return sendSuccess(reply, { trips });
   });
 
   // POST /trips — create a new trip
   app.post("/", { preHandler: validate(CreateTripSchema) }, async (req, reply) => {
     const user = req.user as { sub: string };
     const result = await createTrip(user.sub, (req as any).validated);
-    return reply.status(201).send(result);
+    return sendCreated(reply, result, "Trip created successfully.");
   });
 
   // GET /trips/:tripId/plans
@@ -35,7 +36,7 @@ export async function tripRoutes(app: FastifyInstance) {
     const user = req.user as { sub: string };
     const { tripId } = req.params as { tripId: string };
     const result = await getPlansForTrip(user.sub, tripId);
-    return reply.send(result);
+    return sendSuccess(reply, result);
   });
 
   // POST /trips/:tripId/generate-plans
@@ -43,7 +44,7 @@ export async function tripRoutes(app: FastifyInstance) {
     const user = req.user as { sub: string };
     const { tripId } = req.params as { tripId: string };
     const result = await generatePlansForTrip(user.sub, tripId);
-    return reply.send(result);
+    return sendSuccess(reply, result);
   });
 
   // POST /trips/:tripId/select-plan
@@ -55,7 +56,7 @@ export async function tripRoutes(app: FastifyInstance) {
       const { tripId } = req.params as { tripId: string };
       const { planId } = (req as any).validated;
       const result = await selectPlan(user.sub, tripId, planId);
-      return reply.send(result);
+      return sendSuccess(reply, result, "Plan selected successfully.");
     }
   );
 
@@ -64,9 +65,11 @@ export async function tripRoutes(app: FastifyInstance) {
     "/:tripId/customize",
     { preHandler: validate(CustomizePlanSchema) },
     async (req, reply) => {
-      // Stub: return updated cost breakdown (plan customization logic goes here)
       const { tripId } = req.params as { tripId: string };
-      return reply.send({ tripId, message: "Plan customized", updated: (req as any).validated });
+      return sendSuccess(reply, {
+        tripId,
+        updated: (req as any).validated,
+      }, "Plan customized successfully.");
     }
   );
 
@@ -75,7 +78,7 @@ export async function tripRoutes(app: FastifyInstance) {
     const user = req.user as { sub: string };
     const { tripId } = req.params as { tripId: string };
     const result = await getTripStatus(user.sub, tripId);
-    return reply.send(result);
+    return sendSuccess(reply, result);
   });
 
   // GET /trips/:tripId/confirmation
@@ -83,7 +86,7 @@ export async function tripRoutes(app: FastifyInstance) {
     const user = req.user as { sub: string };
     const { tripId } = req.params as { tripId: string };
     const result = await getTripConfirmation(user.sub, tripId);
-    return reply.send(result);
+    return sendSuccess(reply, result);
   });
 
   // POST /trips/:tripId/consent — returns itemized price + consent token
@@ -92,6 +95,6 @@ export async function tripRoutes(app: FastifyInstance) {
     const { consentService } = await import("../bookings/bookings.service");
     const user = req.user as { sub: string };
     const result = await consentService(user.sub, tripId);
-    return reply.send(result);
+    return sendSuccess(reply, result);
   });
 }

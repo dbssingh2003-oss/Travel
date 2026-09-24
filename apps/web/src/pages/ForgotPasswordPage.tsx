@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Globe, Mail, Loader2, ArrowLeft, CheckCircle2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { authApi } from "@/lib/apiService";
 
 const ForgotPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -23,12 +23,12 @@ export default function ForgotPasswordPage() {
 
   const onSubmit = async (data: ForgotPasswordForm) => {
     try {
-      const res = await api.post("/auth/forgot-password", data);
+      const res = await authApi.forgotPassword(data);
       setSubmitted(true);
-      if (res.data.devResetLink) {
-        setDevLink(res.data.devResetLink);
+      if (res.devResetLink) {
+        setDevLink(res.devResetLink);
       }
-    } catch (err: any) {
+    } catch {
       // Even on error, show success to prevent email enumeration
       setSubmitted(true);
     }
