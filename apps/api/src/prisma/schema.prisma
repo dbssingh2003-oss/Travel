@@ -1,0 +1,200 @@
+// schema.prisma — DB Best Worlds
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  VENDOR
+  ADMIN
+  SUPPORT
+}
+
+enum BudgetTier {
+  LOW
+  MEDIUM
+  HIGH
+  CUSTOM
+}
+
+enum TripStatus {
+  DRAFT
+  PLANNED
+  CONFIRMING
+  BOOKED
+  PARTIALLY_BOOKED
+  CANCELLED
+  COMPLETED
+}
+
+enum BookingType {
+  TRAIN
+  HOTEL
+  CAB
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  AUTHORIZED
+  CAPTURED
+  REFUNDED
+  FAILED
+  VOIDED
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  phone         String?        @unique
+  passwordHash  String?
+  authProvider  String         @default("local")
+  role          Role           @default(USER)
+  isVerified    Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  trips         Trip[]
+  travelers     Traveler[]
+  refreshTokens RefreshToken[]
+
+  @@index([email])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Traveler {
+  id       String  @id @default(uuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id])
+  fullName String
+  age      Int?
+  idType   String? // Aadhaar/Passport etc. — reference only, never raw document
+  idRef    String?
+}
+
+model Trip {
+  id          String     @id @default(uuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
+  destination String
+  originCity  String?
+  startDate   DateTime
+  endDate     DateTime
+  travelers   Int        @default(1)
+  budgetTier  BudgetTier
+  budgetMin   Int?
+  budgetMax   Int?
+  status      TripStatus @default(DRAFT)
+  plans       TripPlan[]
+  bookings    Booking[]
+  payments    Payment[]
+  auditLogs   AuditLog[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([userId, status])
+}
+
+model TripPlan {
+  id            String   @id @default(uuid())
+  tripId        String
+  trip          Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  label         String   // "Budget Explorer" | "Balanced" | "Comfort Plus"
+  estimatedCost Int
+  costBreakdown Json     // { transport, stay, localTransport, buffer }
+  itineraryJson Json     // day-wise structured plan
+  selected      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model Vendor {
+  id            String         @id @default(uuid())
+  name          String
+  type          BookingType
+  contactPhone  String
+  contactEmail  String
+  city          String?
+  kycVerified   Boolean        @default(false)
+  kycDocsRef    String?
+  trustScore    Float          @default(0)
+  totalBookings Int            @default(0)
+  disputeCount  Int            @default(0)
+  active        Boolean        @default(false) // true after admin approval
+  bookings      Booking[]
+  ratings       VendorRating[]
+  createdAt     DateTime       @default(now())
+
+  @@index([type, active])
+}
+
+model VendorRating {
+  id        String   @id @default(uuid())
+  vendorId  String
+  vendor    Vendor   @relation(fields: [vendorId], references: [id])
+  bookingId String   @unique
+  rating    Int      // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+}
+
+model Booking {
+  id              String        @id @default(uuid())
+  tripId          String
+  trip            Trip          @relation(fields: [tripId], references: [id])
+  vendorId        String?
+  vendor          Vendor?       @relation(fields: [vendorId], references: [id])
+  type            BookingType
+  status          BookingStatus @default(PENDING)
+  referenceCode   String?       // PNR / booking ID from vendor
+  amount          Int
+  metadata        Json?         // seat class, room type, cab type, etc.
+  failureReason   String?
+  claimedByUserId String?       // ops agent (User with role SUPPORT) who claimed this task
+  slaDeadline     DateTime?     // escalation deadline if still PENDING
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([tripId, status])
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  tripId       String
+  trip         Trip          @relation(fields: [tripId], references: [id])
+  gateway      String        @default("razorpay")
+  gatewayRefId String
+  amount       Int
+  status       PaymentStatus @default(AUTHORIZED)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  tripId    String?
+  trip      Trip?    @relation(fields: [tripId], references: [id])
+  actorId   String?  // userId or "system"
+  action    String   // "PLAN_GENERATED" | "CONSENT_GIVEN" | "PAYMENT_AUTHORIZED" | "BOOKING_CONFIRMED" ...
+  detail    Json?
+  createdAt DateTime @default(now())
+}
