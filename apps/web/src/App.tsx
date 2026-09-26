@@ -1,7 +1,10 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
 import { useAuthStore } from "@/store/authStore";
+import { useUIStore } from "@/store/uiStore";
 import Navbar from "@/components/shared/Navbar";
+import ToastContainer from "@/components/ui/Toast";
 import LandingPage from "@/pages/LandingPage";
 import AuthPage from "@/pages/AuthPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
@@ -29,9 +32,20 @@ function OpsRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const theme = useUIStore((s) => s.theme);
+
+  useEffect(() => {
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [theme]);
+
   return (
-    <div className="min-h-screen bg-background text-slate-100">
+    <div className="min-h-screen bg-background text-text-main transition-colors duration-200">
       <Navbar />
+      <ToastContainer />
       <AnimatePresence mode="wait">
         <Routes>
           <Route path="/" element={<LandingPage />} />

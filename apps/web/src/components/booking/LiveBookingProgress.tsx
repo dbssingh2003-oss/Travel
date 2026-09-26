@@ -1,13 +1,20 @@
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { Train, Hotel, Car, CheckCircle2, XCircle, Clock, Wifi, WifiOff } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Train, Hotel, Car, Wifi, WifiOff, Activity, ChevronDown, ChevronUp } from "lucide-react";
 import { socket, subscribeTripUpdates, unsubscribeTripUpdates } from "@/lib/socket";
+import { WaitlistStatusBadge } from "./WaitlistStatusBadge";
+import { SagaTimeline } from "./SagaTimeline";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
 
-type LegStatus = "PENDING" | "CONFIRMED" | "FAILED" | "CANCELLED";
+type LegStatus = "PENDING" | "CONFIRMED" | "WAITLISTED" | "RAC" | "FAILED" | "CANCELLED";
 
 interface LegState {
   status: LegStatus;
   referenceCode?: string;
+  position?: number | string;
+  probability?: string;
 }
 
 const LEG_ICONS = {
@@ -18,34 +25,9 @@ const LEG_ICONS = {
 
 const LEG_LABELS = {
   TRAIN: "Train / Transport",
-  HOTEL: "Hotel Stay",
-  CAB: "Local Cab",
+  HOTEL: "Hotel / Stay",
+  CAB: "Local Transfers",
 };
-
-function StatusIcon({ status }: { status: LegStatus }) {
-  if (status === "CONFIRMED")
-    return <CheckCircle2 className="w-6 h-6 text-success" />;
-  if (status === "FAILED" || status === "CANCELLED")
-    return <XCircle className="w-6 h-6 text-danger" />;
-  return (
-    <motion.div
-      animate={{ rotate: 360 }}
-      transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-    >
-      <Clock className="w-6 h-6 text-warning" />
-    </motion.div>
-  );
-}
-
-function PulsingDot({ status }: { status: LegStatus }) {
-  if (status !== "PENDING") return null;
-  return (
-    <span className="relative flex h-2 w-2">
-      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-warning opacity-75" />
-      <span className="relative inline-flex rounded-full h-2 w-2 bg-warning" />
-    </span>
-  );
-}
 
 export function LiveBookingProgress({
   tripId,
@@ -61,6 +43,7 @@ export function LiveBookingProgress({
   });
   const [tripStatus, setTripStatus] = useState<"CONFIRMING" | "BOOKED" | "FAILED">("CONFIRMING");
   const [connected, setConnected] = useState(false);
+  const [showSagaLogs, setShowSagaLogs] = useState(false);
 
   useEffect(() => {
     subscribeTripUpdates(tripId);
@@ -71,7 +54,12 @@ export function LiveBookingProgress({
     const onBookingUpdate = (e: any) => {
       setLegs((prev) => ({
         ...prev,
-        [e.leg]: { status: e.status, referenceCode: e.referenceCode },
+        [e.leg]: {
+          status: e.status,
+          referenceCode: e.referenceCode,
+          position: e.position,
+          probability: e.probability,
+        },
       }));
     };
 
@@ -85,11 +73,21 @@ export function LiveBookingProgress({
       onComplete?.("FAILED");
     };
 
+    const onWaitlisted = (e: any) => {
+      if (e.leg) {
+        setLegs((prev) => ({
+          ...prev,
+          [e.leg]: { status: "WAITLISTED", position: e.position },
+        }));
+      }
+    };
+
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
     socket.on("BOOKING_UPDATE", onBookingUpdate);
     socket.on("TRIP_COMPLETE", onTripComplete);
     socket.on("TRIP_FAILED", onTripFailed);
+    socket.on(`trip:${tripId}:booking:waitlisted`, onWaitlisted);
 
     if (socket.connected) setConnected(true);
 
@@ -100,105 +98,138 @@ export function LiveBookingProgress({
       socket.off("BOOKING_UPDATE", onBookingUpdate);
       socket.off("TRIP_COMPLETE", onTripComplete);
       socket.off("TRIP_FAILED", onTripFailed);
+      socket.off(`trip:${tripId}:booking:waitlisted`, onWaitlisted);
     };
   }, [tripId, onComplete]);
 
-  const allLegs = (["TRAIN", "HOTEL", "CAB"] as const);
+  const legKeys = ["TRAIN", "HOTEL", "CAB"] as const;
+  const completedCount = legKeys.filter((k) => legs[k]?.status === "CONFIRMED" || legs[k]?.status === "RAC").length;
+  const progressPercent = Math.round((completedCount / legKeys.length) * 100);
 
   return (
-    <div className="space-y-4">
-      {/* Connection indicator */}
-      <div className="flex items-center gap-2 text-xs">
-        {connected ? (
-          <><Wifi className="w-3 h-3 text-success" /><span className="text-success">Live updates active</span></>
-        ) : (
-          <><WifiOff className="w-3 h-3 text-warning" /><span className="text-warning">Connecting…</span></>
-        )}
+    <div className="space-y-6">
+      {/* Live status bar */}
+      <div className="flex items-center justify-between text-xs text-muted-fg bg-surface-hover/60 px-4 py-2.5 rounded-xl border border-surface-border">
+        <div className="flex items-center gap-2">
+          {connected ? (
+            <>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success-500 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success-500" />
+              </span>
+              <span className="text-success-600 dark:text-success-400 font-semibold flex items-center gap-1">
+                <Wifi className="w-3.5 h-3.5" /> Real-Time WebSocket Gateway Connected
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-fg flex items-center gap-1">
+              <WifiOff className="w-3.5 h-3.5 text-warning-500" /> Connecting to Real-Time Bridge…
+            </span>
+          )}
+        </div>
+        <span className="font-mono text-xs">{completedCount} of 3 Segments Locked</span>
       </div>
 
-      {/* Progress line connecting legs */}
-      <div className="relative">
-        <div className="absolute left-6 top-8 bottom-8 w-0.5 bg-border" />
-        <div className="space-y-4">
-          {allLegs.map((leg, i) => {
-            const { status, referenceCode } = legs[leg];
-            return (
-              <motion.div
-                key={leg}
-                layout
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={`relative flex items-start gap-4 p-4 rounded-xl border transition-all duration-500 ${
-                  status === "CONFIRMED"
-                    ? "border-success/30 bg-success/5"
-                    : status === "FAILED" || status === "CANCELLED"
-                    ? "border-danger/30 bg-danger/5"
-                    : "border-border bg-surface-2"
-                }`}
-              >
-                {/* Icon */}
+      {/* Progress Bar */}
+      <div className="w-full h-2 rounded-full bg-surface-border overflow-hidden">
+        <motion.div
+          className="h-full bg-brand-500 rounded-full"
+          initial={{ width: "0%" }}
+          animate={{ width: `${progressPercent}%` }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+        />
+      </div>
+
+      {/* Leg cards */}
+      <div className="space-y-3.5">
+        {legKeys.map((type, idx) => {
+          const leg = legs[type] || { status: "PENDING" };
+          const isDone = leg.status === "CONFIRMED" || leg.status === "RAC";
+
+          return (
+            <Card
+              key={type}
+              variant="default"
+              className={`p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-300 ${
+                isDone
+                  ? "border-success-500/30 bg-success-500/5 shadow-sm"
+                  : leg.status === "WAITLISTED"
+                  ? "border-warning-500/30 bg-warning-500/5"
+                  : leg.status === "FAILED" || leg.status === "CANCELLED"
+                  ? "border-danger-500/30 bg-danger-500/5"
+                  : "border-brand-500/20 bg-surface shadow-card"
+              }`}
+            >
+              <div className="flex items-center gap-3.5">
                 <div
-                  className={`relative z-10 w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                    status === "CONFIRMED"
-                      ? "bg-success/20 text-success"
-                      : status === "FAILED"
-                      ? "bg-danger/20 text-danger"
-                      : "bg-surface text-muted"
+                  className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    isDone
+                      ? "bg-success-500/10 text-success-500"
+                      : "bg-brand-500/10 text-brand-500"
                   }`}
                 >
-                  {LEG_ICONS[leg]}
-                  <div className="absolute -top-1 -right-1">
-                    <PulsingDot status={status} />
-                  </div>
+                  {LEG_ICONS[type]}
                 </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-text-main">{LEG_LABELS[type]}</span>
+                    <span className="text-xs text-muted-fg font-mono">Step #{idx + 1}</span>
+                  </div>
+                  {leg.referenceCode ? (
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-xs text-muted-fg">Reference Code:</span>
+                      <span className="font-mono text-xs font-bold text-brand-500 bg-brand-500/10 px-2 py-0.5 rounded border border-brand-500/20">
+                        {leg.referenceCode}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-fg mt-0.5">
+                      {leg.status === "PENDING" ? "Orchestrating booking with vendor API..." : "Processing response"}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-                {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-200">{LEG_LABELS[leg]}</p>
-                    <StatusIcon status={status} />
-                  </div>
-                  {status === "CONFIRMED" && referenceCode && (
-                    <motion.p
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="text-sm text-success mt-1 font-mono"
-                    >
-                      Ref: {referenceCode}
-                    </motion.p>
-                  )}
-                  {status === "PENDING" && (
-                    <p className="text-sm text-muted-fg mt-1 animate-pulse">
-                      Our team is arranging this for you…
-                    </p>
-                  )}
-                  {(status === "FAILED" || status === "CANCELLED") && (
-                    <p className="text-sm text-danger mt-1">
-                      {status === "FAILED" ? "Could not confirm. Refund initiated." : "Cancelled."}
-                    </p>
-                  )}
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+              <div className="self-end sm:self-auto">
+                <WaitlistStatusBadge
+                  status={leg.status}
+                  position={leg.position}
+                  probability={leg.probability as any}
+                />
+              </div>
+            </Card>
+          );
+        })}
       </div>
 
-      {/* Overall status */}
-      {tripStatus !== "CONFIRMING" && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className={`p-4 rounded-xl text-center font-semibold ${
-            tripStatus === "BOOKED"
-              ? "bg-success/10 border border-success/30 text-success"
-              : "bg-danger/10 border border-danger/30 text-danger"
-          }`}
+      {/* Saga Observability Timeline Toggle */}
+      <div className="pt-2 border-t border-surface-border">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowSagaLogs(!showSagaLogs)}
+          className="text-xs text-muted-fg hover:text-text-main flex items-center gap-2"
         >
-          {tripStatus === "BOOKED" ? "🎉 All bookings confirmed!" : "⚠️ Booking failed — refund initiated"}
-        </motion.div>
-      )}
+          <Activity className="w-3.5 h-3.5 text-brand-500" />
+          <span>{showSagaLogs ? "Hide" : "Show"} Live Saga Transaction Timeline</span>
+          {showSagaLogs ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </Button>
+
+        <AnimatePresence>
+          {showSagaLogs && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="pt-3 overflow-hidden"
+            >
+              <SagaTimeline tripId={tripId} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
+
+export default LiveBookingProgress;

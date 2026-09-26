@@ -44,6 +44,14 @@ function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+export async function hashPassword(password: string): Promise<string> {
+  return argon2.hash(password);
+}
+
+export async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  return argon2.verify(hash, password);
+}
+
 // ── OTP helpers ──────────────────────────────────────────────────────────────
 
 function generateOtp(): string {

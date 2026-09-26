@@ -1,4 +1,4 @@
-// schema.prisma — DB Best Worlds
+// schema.prisma — DB Best Worlds v2
 generator client {
   provider = "prisma-client-js"
 }
@@ -41,6 +41,8 @@ enum BookingType {
 enum BookingStatus {
   PENDING
   CONFIRMED
+  WAITLISTED
+  RAC
   FAILED
   CANCELLED
   REFUNDED
@@ -93,56 +95,88 @@ model Traveler {
 }
 
 model Trip {
-  id          String     @id @default(uuid())
+  id          String      @id @default(uuid())
   userId      String
-  user        User       @relation(fields: [userId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
   destination String
   originCity  String?
   startDate   DateTime
   endDate     DateTime
-  travelers   Int        @default(1)
+  travelers   Int         @default(1)
   budgetTier  BudgetTier
   budgetMin   Int?
   budgetMax   Int?
-  status      TripStatus @default(DRAFT)
+  status      TripStatus  @default(DRAFT)
+  legs        TripLeg[]
   plans       TripPlan[]
   bookings    Booking[]
   payments    Payment[]
   auditLogs   AuditLog[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  priceLocks  PriceLock[]
+  sagaEvents  SagaEvent[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   @@index([userId, status])
 }
 
+model TripLeg {
+  id          String    @id @default(cuid())
+  tripId      String
+  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  sequence    Int       @default(1)
+  originCity  String
+  destination String
+  startDate   DateTime
+  endDate     DateTime
+  bookings    Booking[]
+
+  @@index([tripId, sequence])
+}
+
 model TripPlan {
-  id            String   @id @default(uuid())
+  id            String      @id @default(uuid())
   tripId        String
-  trip          Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
-  label         String   // "Budget Explorer" | "Balanced" | "Comfort Plus"
+  trip          Trip        @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  label         String      // "Budget Explorer" | "Balanced" | "Comfort Plus"
   estimatedCost Int
-  costBreakdown Json     // { transport, stay, localTransport, buffer }
-  itineraryJson Json     // day-wise structured plan
-  selected      Boolean  @default(false)
-  createdAt     DateTime @default(now())
+  costBreakdown Json        // { transport, stay, localTransport, buffer }
+  itineraryJson Json        // day-wise structured plan
+  selected      Boolean     @default(false)
+  priceLocks    PriceLock[]
+  createdAt     DateTime    @default(now())
+}
+
+model PriceLock {
+  id         String   @id @default(cuid())
+  tripId     String
+  trip       Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripPlanId String
+  tripPlan   TripPlan @relation(fields: [tripPlanId], references: [id], onDelete: Cascade)
+  lockedCost Int
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([tripId, expiresAt])
 }
 
 model Vendor {
-  id            String         @id @default(uuid())
+  id            String           @id @default(uuid())
   name          String
   type          BookingType
   contactPhone  String
   contactEmail  String
   city          String?
-  kycVerified   Boolean        @default(false)
+  kycVerified   Boolean          @default(false)
   kycDocsRef    String?
-  trustScore    Float          @default(0)
-  totalBookings Int            @default(0)
-  disputeCount  Int            @default(0)
-  active        Boolean        @default(false) // true after admin approval
+  trustScore    Float            @default(0)
+  totalBookings Int              @default(0)
+  disputeCount  Int              @default(0)
+  active        Boolean          @default(false) // true after admin approval
   bookings      Booking[]
   ratings       VendorRating[]
-  createdAt     DateTime       @default(now())
+  scorecard     VendorScorecard?
+  createdAt     DateTime         @default(now())
 
   @@index([type, active])
 }
@@ -157,17 +191,27 @@ model VendorRating {
   createdAt DateTime @default(now())
 }
 
+model VendorScorecard {
+  vendorId         String   @id
+  vendor           Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  cancellationRate Float    @default(0)
+  avgResponseMins  Int      @default(15)
+  lastUpdated      DateTime @updatedAt
+}
+
 model Booking {
   id              String        @id @default(uuid())
   tripId          String
   trip            Trip          @relation(fields: [tripId], references: [id])
+  tripLegId       String?
+  tripLeg         TripLeg?      @relation(fields: [tripLegId], references: [id], onDelete: SetNull)
   vendorId        String?
   vendor          Vendor?       @relation(fields: [vendorId], references: [id])
   type            BookingType
   status          BookingStatus @default(PENDING)
   referenceCode   String?       // PNR / booking ID from vendor
   amount          Int
-  metadata        Json?         // seat class, room type, cab type, etc.
+  metadata        Json?         // seat class, room type, cab type, waitlist position, etc.
   failureReason   String?
   claimedByUserId String?       // ops agent (User with role SUPPORT) who claimed this task
   slaDeadline     DateTime?     // escalation deadline if still PENDING
@@ -178,15 +222,49 @@ model Booking {
 }
 
 model Payment {
-  id           String        @id @default(uuid())
+  id           String         @id @default(uuid())
   tripId       String
-  trip         Trip          @relation(fields: [tripId], references: [id])
-  gateway      String        @default("razorpay")
+  trip         Trip           @relation(fields: [tripId], references: [id])
+  gateway      String         @default("razorpay")
   gatewayRefId String
   amount       Int
-  status       PaymentStatus @default(AUTHORIZED)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  status       PaymentStatus  @default(AUTHORIZED)
+  shares       PaymentShare[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model PaymentShare {
+  id         String   @id @default(cuid())
+  paymentId  String
+  payment    Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  travelerId String
+  amount     Int
+  status     String   @default("PENDING") // PENDING | PAID | FAILED
+  payLinkUrl String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([paymentId])
+}
+
+model SagaEvent {
+  id        String   @id @default(cuid())
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  step      String   // e.g. "TRAIN_BOOK_ATTEMPT", "HOTEL_COMPENSATE"
+  status    String   // STARTED | SUCCEEDED | FAILED | COMPENSATED
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([tripId, createdAt])
+}
+
+model IdempotencyKey {
+  key       String   @id
+  scope     String   // e.g. "saga:trip:123"
+  response  Json?
+  createdAt DateTime @default(now())
 }
 
 model AuditLog {
@@ -202,7 +280,7 @@ model AuditLog {
 model PasswordResetToken {
   id        String   @id @default(uuid())
   userId    String
-  tokenHash String   @unique // SHA-256 hash of the raw token sent in the email
+  tokenHash String   @unique
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())

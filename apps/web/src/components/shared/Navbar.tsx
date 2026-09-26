@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Globe, LayoutDashboard, LogOut, Menu, X, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { useAuthStore } from "@/store/authStore";
+import ThemeToggle from "@/components/shared/ThemeToggle";
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -55,6 +56,7 @@ export default function Navbar() {
                   </Link>
                 )}
                 <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
+                  <ThemeToggle />
                   <span className="text-sm text-muted">{user?.name}</span>
                   <button
                     onClick={handleLogout}
@@ -66,6 +68,7 @@ export default function Navbar() {
               </>
             ) : (
               <>
+                <ThemeToggle />
                 <Link to="/auth" className="btn-secondary text-sm px-4 py-2">
                   Sign In
                 </Link>

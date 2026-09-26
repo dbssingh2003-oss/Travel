@@ -11,9 +11,11 @@ import { requestIdMiddleware } from "./middleware/requestId";
 import { sendSuccess } from "./lib/apiResponse";
 import { authRoutes } from "./modules/auth/auth.controller";
 import { tripRoutes } from "./modules/trips/trips.controller";
+import { legRoutes } from "./modules/trips/legs/legs.controller";
 import { bookingRoutes } from "./modules/bookings/bookings.controller";
 import { vendorRoutes } from "./modules/vendors/vendors.controller";
 import { opsRoutes } from "./modules/ops/ops.controller";
+import { paymentRoutes } from "./modules/payments/payments.controller";
 import { initSocketGateway } from "./ws/gateway";
 import { startOpsWorker } from "./jobs/ops-queue";
 import { startNotificationWorker } from "./jobs/notification-queue";
@@ -116,9 +118,11 @@ async function bootstrap() {
   // ── Routes ────────────────────────────────────────────────────────────────
   await app.register(authRoutes,    { prefix: "/api/v1/auth" });
   await app.register(tripRoutes,    { prefix: "/api/v1/trips" });
+  await app.register(legRoutes,     { prefix: "/api/v1/trips" });
   await app.register(bookingRoutes, { prefix: "/api/v1/bookings" });
   await app.register(vendorRoutes,  { prefix: "/api/v1/vendors" });
   await app.register(opsRoutes,     { prefix: "/api/v1/ops" });
+  await app.register(paymentRoutes, { prefix: "/api/v1/payments" });
 
   // ── Attach Socket.io to Fastify HTTP server ──────────────────────────────
   initSocketGateway(app.server, config.allowedOrigins);

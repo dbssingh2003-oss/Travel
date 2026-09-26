@@ -1,0 +1,21 @@
+:root {
+  --color-bg: #ffffff;
+  --color-bg-alt: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-text-main: #0f172a;
+  --color-text-muted: #64748b;
+  --radius-card: 1rem;
+}
+
+.dark {
+  --color-bg: #080c14;
+  --color-bg-alt: #0d1526;
+  --color-surface: #0f1623;
+  --color-surface-hover: #162032;
+  --color-border: #1e2a40;
+  --color-text-main: #f8fafc;
+  --color-text-muted: #94a3b8;
+  --radius-card: 1rem;
+}
