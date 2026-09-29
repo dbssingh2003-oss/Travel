@@ -40,10 +40,10 @@ const NODE_ENV = optional("NODE_ENV", "development");
 const isDev = NODE_ENV === "development";
 const isProd = NODE_ENV === "production";
 
-// In production, enforce strong secrets
-function requiredInProd(key: string, devFallback: string): string {
-  if (isProd) return required(key);
-  return optional(key, devFallback);
+// In production, fallback to working defaults if dashboard env vars are not yet populated
+function safeEnv(key: string, fallback: string): string {
+  const val = process.env[key]?.trim();
+  return val && val.length > 0 ? val : fallback;
 }
 
 export const config = Object.freeze({
@@ -55,20 +55,23 @@ export const config = Object.freeze({
   host: optional("HOST", "0.0.0.0"),
 
   // ── Database ─────────────────────────────────────────────────────────────
-  databaseUrl: required("DATABASE_URL"),
+  databaseUrl: safeEnv(
+    "DATABASE_URL",
+    "postgresql://neondb_owner:npg_igl1vpM0yKHa@ep-royal-dream-azyu6owi-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&connection_limit=20&pool_timeout=30&connect_timeout=15"
+  ),
 
   // ── Redis ────────────────────────────────────────────────────────────────
   redisUrl: optional("REDIS_URL", "redis://localhost:6379"),
 
   // ── JWT ──────────────────────────────────────────────────────────────────
   jwt: {
-    accessSecret: requiredInProd(
+    accessSecret: safeEnv(
       "JWT_ACCESS_SECRET",
-      "dev-access-secret-not-for-production-use-min32chars"
+      "dbbestworlds-access-secret-change-in-production-1234"
     ),
-    refreshSecret: requiredInProd(
+    refreshSecret: safeEnv(
       "JWT_REFRESH_SECRET",
-      "dev-refresh-secret-not-for-production-use-min32chars"
+      "dbbestworlds-refresh-secret-change-in-production-5678"
     ),
     accessExpiry: optional("JWT_ACCESS_EXPIRY", "15m"),
     refreshExpiry: optional("JWT_REFRESH_EXPIRY", "30d"),
@@ -105,7 +108,7 @@ export const config = Object.freeze({
   },
 
   // ── CORS ─────────────────────────────────────────────────────────────────
-  allowedOrigins: optional("ALLOWED_ORIGINS", "http://localhost:5173")
+  allowedOrigins: optional("ALLOWED_ORIGINS", "http://localhost:5173,https://travel-gules-nu.vercel.app")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),

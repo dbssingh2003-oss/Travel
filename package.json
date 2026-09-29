@@ -10,13 +10,17 @@
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
-    "build": "npm run build --workspace=apps/web",
+    "build": "npx prisma generate --schema=apps/api/prisma/schema.prisma && npm run build:api && npm run build:web",
     "build:api": "npm run build --workspace=apps/api",
     "build:web": "npm run build --workspace=apps/web",
+    "postinstall": "npx prisma generate --schema=apps/api/prisma/schema.prisma",
     "migrate": "npm run migrate --workspace=apps/api",
     "migrate:prod": "npm run migrate:prod --workspace=apps/api"
   },
   "devDependencies": {
-    "concurrently": "^9.2.4"
+    "@types/node": "^22.5.5",
+    "@vercel/node": "^3.2.0",
+    "concurrently": "^9.2.4",
+    "prisma": "^5.20.0"
   }
 }
