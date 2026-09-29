@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Train, Hotel, Car, Wifi, WifiOff, Activity, ChevronDown, ChevronUp } from "lucide-react";
 import { socket, subscribeTripUpdates, unsubscribeTripUpdates } from "@/lib/socket";
+import { tripsApi } from "@/lib/apiService";
 import { WaitlistStatusBadge } from "./WaitlistStatusBadge";
 import { SagaTimeline } from "./SagaTimeline";
 import { Badge } from "../ui/Badge";
@@ -91,7 +92,40 @@ export function LiveBookingProgress({
 
     if (socket.connected) setConnected(true);
 
+    // Fallback REST polling: if WebSocket is disconnected or unavailable (e.g. Serverless)
+    const pollInterval = setInterval(async () => {
+      if (socket.connected) return;
+      try {
+        const data = await tripsApi.getStatus(tripId);
+        if (data?.bookings) {
+          data.bookings.forEach((b: any) => {
+            if (b.type) {
+              setLegs((prev) => ({
+                ...prev,
+                [b.type]: {
+                  status: b.status,
+                  referenceCode: b.referenceCode,
+                  position: b.metadata?.position,
+                  probability: b.metadata?.probability,
+                },
+              }));
+            }
+          });
+        }
+        if (data?.status === "BOOKED" || data?.status === "COMPLETED") {
+          setTripStatus("BOOKED");
+          onComplete?.("BOOKED");
+        } else if (data?.status === "CANCELLED" || data?.status === "FAILED") {
+          setTripStatus("FAILED");
+          onComplete?.("FAILED");
+        }
+      } catch {
+        // quiet fallback
+      }
+    }, 4000);
+
     return () => {
+      clearInterval(pollInterval);
       unsubscribeTripUpdates(tripId);
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);

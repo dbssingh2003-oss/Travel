@@ -1,7 +1,18 @@
 import axios from "axios";
 import { useAuthStore } from "@/store/authStore";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api/v1";
+function resolveBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (!envUrl) return "/api/v1";
+
+  // If user provided origin like https://travel-gules-nu.vercel.app without /api
+  if (!envUrl.includes("/api")) {
+    return `${envUrl.replace(/\/+$/, "")}/api/v1`;
+  }
+  return envUrl.replace(/\/+$/, "");
+}
+
+const BASE_URL = resolveBaseUrl();
 
 export const api = axios.create({
   baseURL: BASE_URL,

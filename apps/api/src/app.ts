@@ -141,18 +141,20 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
   };
 
-  app.get("/health", healthCheck);
-  app.get("/api/health", healthCheck);
-  app.get("/api/v1/health", healthCheck);
+  app.all("/health", healthCheck);
+  app.all("/api/health", healthCheck);
+  app.all("/api/v1/health", healthCheck);
 
-  // ── Routes ────────────────────────────────────────────────────────────────
-  await app.register(authRoutes,    { prefix: "/api/v1/auth" });
-  await app.register(tripRoutes,    { prefix: "/api/v1/trips" });
-  await app.register(legRoutes,     { prefix: "/api/v1/trips" });
-  await app.register(bookingRoutes, { prefix: "/api/v1/bookings" });
-  await app.register(vendorRoutes,  { prefix: "/api/v1/vendors" });
-  await app.register(opsRoutes,     { prefix: "/api/v1/ops" });
-  await app.register(paymentRoutes, { prefix: "/api/v1/payments" });
+  // ── Routes (Registered for both /api/v1 and /api aliases) ──────────────────
+  for (const prefix of ["/api/v1", "/api"]) {
+    await app.register(authRoutes,    { prefix: `${prefix}/auth` });
+    await app.register(tripRoutes,    { prefix: `${prefix}/trips` });
+    await app.register(legRoutes,     { prefix: `${prefix}/trips` });
+    await app.register(bookingRoutes, { prefix: `${prefix}/bookings` });
+    await app.register(vendorRoutes,  { prefix: `${prefix}/vendors` });
+    await app.register(opsRoutes,     { prefix: `${prefix}/ops` });
+    await app.register(paymentRoutes, { prefix: `${prefix}/payments` });
+  }
 
   return app;
 }

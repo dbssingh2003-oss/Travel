@@ -18,37 +18,35 @@ export async function opsRoutes(app: FastifyInstance) {
     return sendSuccess(reply, { bookings });
   });
 
-  // PATCH /ops/bookings/:id/claim
-  app.patch("/:id/claim", async (req, reply) => {
+  // PATCH /ops/bookings/:id/claim (supports both /ops/:id/claim and /ops/bookings/:id/claim)
+  const handleClaim = async (req: any, reply: any) => {
     const user = req.user as { sub: string };
     const { id } = req.params as { id: string };
     const result = await claimBooking(id, user.sub);
     return sendSuccess(reply, result, "Booking claimed by agent.");
-  });
+  };
+  app.patch("/:id/claim", handleClaim);
+  app.patch("/bookings/:id/claim", handleClaim);
 
   // PATCH /ops/bookings/:id/confirm
-  app.patch(
-    "/:id/confirm",
-    { preHandler: validate(ConfirmBookingSchema) },
-    async (req, reply) => {
-      const user = req.user as { sub: string };
-      const { id } = req.params as { id: string };
-      const { referenceCode } = (req as any).validated;
-      const result = await confirmBooking(id, referenceCode, user.sub);
-      return sendSuccess(reply, result, "Booking confirmed.");
-    }
-  );
+  const handleConfirm = async (req: any, reply: any) => {
+    const user = req.user as { sub: string };
+    const { id } = req.params as { id: string };
+    const { referenceCode } = (req as any).validated;
+    const result = await confirmBooking(id, referenceCode, user.sub);
+    return sendSuccess(reply, result, "Booking confirmed.");
+  };
+  app.patch("/:id/confirm", { preHandler: validate(ConfirmBookingSchema) }, handleConfirm);
+  app.patch("/bookings/:id/confirm", { preHandler: validate(ConfirmBookingSchema) }, handleConfirm);
 
   // PATCH /ops/bookings/:id/fail
-  app.patch(
-    "/:id/fail",
-    { preHandler: validate(FailBookingSchema) },
-    async (req, reply) => {
-      const user = req.user as { sub: string };
-      const { id } = req.params as { id: string };
-      const { reason } = (req as any).validated;
-      const result = await failBooking(id, reason, user.sub);
-      return sendSuccess(reply, result, "Booking marked as failed.");
-    }
-  );
+  const handleFail = async (req: any, reply: any) => {
+    const user = req.user as { sub: string };
+    const { id } = req.params as { id: string };
+    const { reason } = (req as any).validated;
+    const result = await failBooking(id, reason, user.sub);
+    return sendSuccess(reply, result, "Booking marked as failed.");
+  };
+  app.patch("/:id/fail", { preHandler: validate(FailBookingSchema) }, handleFail);
+  app.patch("/bookings/:id/fail", { preHandler: validate(FailBookingSchema) }, handleFail);
 }

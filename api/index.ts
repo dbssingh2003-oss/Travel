@@ -15,38 +15,73 @@ async function getApp(): Promise<FastifyInstance> {
 }
 
 export default async function handler(req: any, res: any) {
-  // CORS Preflight fast-path
+  const origin = req.headers?.origin || "*";
+
+  // 1. CORS Preflight fast-path
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Request-Id");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
+    if (origin !== "*") {
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
     res.setHeader("Access-Control-Max-Age", "86400");
     res.end();
+    return;
+  }
+
+  // 2. Intercept WebSocket polling requests on serverless to prevent continuous 405s
+  const rawUrl = req.url || "/";
+  if (rawUrl.startsWith("/ws") || rawUrl.startsWith("/api/ws")) {
+    res.statusCode = 200;
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.end(
+      JSON.stringify({
+        status: "serverless_notice",
+        message: "Socket.io real-time server runs on dedicated host. Fallback REST active.",
+      })
+    );
     return;
   }
 
   try {
     const app = await getApp();
 
-    // Reconstruct proper client URL if rewritten by Vercel
+    // 3. Reconstruct client URL and preserve query parameters
+    const queryIdx = rawUrl.indexOf("?");
+    const queryString = queryIdx !== -1 ? rawUrl.slice(queryIdx) : "";
+    let rawPath = queryIdx !== -1 ? rawUrl.slice(0, queryIdx) : rawUrl;
+
     const matchedPath = req.headers["x-matched-path"] as string | undefined;
     const routeParam = req.query?.__route as string | undefined;
     const pathParam = req.query?.path;
 
     if (routeParam) {
-      req.url = routeParam;
-    } else if (matchedPath) {
-      req.url = matchedPath;
+      const qIdx = routeParam.indexOf("?");
+      rawPath = qIdx !== -1 ? routeParam.slice(0, qIdx) : routeParam;
     } else if (pathParam) {
       const subPath = Array.isArray(pathParam) ? pathParam.join("/") : pathParam;
-      req.url = subPath.startsWith("/") ? `/api${subPath}` : `/api/${subPath}`;
+      rawPath = subPath.startsWith("/") ? `/api${subPath}` : `/api/${subPath}`;
+    } else if (matchedPath && matchedPath !== "/api" && matchedPath !== "/api/index") {
+      const qIdx = matchedPath.indexOf("?");
+      rawPath = qIdx !== -1 ? matchedPath.slice(0, qIdx) : matchedPath;
     }
 
-    // Ensure URL has /api prefix for Fastify router matching
-    if (!req.url.startsWith("/api") && !req.url.startsWith("/health")) {
-      req.url = `/api${req.url.startsWith("/") ? "" : "/"}${req.url}`;
+    // Ensure path has /api prefix for Fastify router matching (except /health)
+    if (!rawPath.startsWith("/api") && !rawPath.startsWith("/health")) {
+      rawPath = `/api${rawPath.startsWith("/") ? "" : "/"}${rawPath}`;
+    }
+
+    req.url = `${rawPath}${queryString}`;
+
+    // Add CORS headers to all responses
+    if (origin !== "*") {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", "*");
     }
 
     // Delegate to Fastify HTTP server
